@@ -6,11 +6,17 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
-@CrossOrigin(origins = "http://localhost:5173")
+@CrossOrigin(origins = {
+        "http://localhost:5173",
+        "https://govnotify-frontend.vercel.app",
+        "*"
+})
 public class AdminController {
 
     private final JobNotificationRepository jobs;
@@ -34,13 +40,11 @@ public class AdminController {
         if (email == null || email.isBlank()) {
             return false;
         }
-
         return users.findByEmail(email.trim().toLowerCase())
                 .map(user -> "ADMIN".equalsIgnoreCase(user.getRole()))
                 .orElse(false);
     }
 
-    /* Helper: Verify URL belongs to official government / Tamil Nadu state domain */
     private boolean isOfficialDomain(String url) {
         if (url == null || url.isBlank()) return false;
         String lower = url.trim().toLowerCase();
@@ -49,25 +53,21 @@ public class AdminController {
                lower.contains("tnstc.in") || lower.contains("trb.tn.gov.in");
     }
 
-    /* Public: Fetch Tamil Nadu Tracker jobs */
     @GetMapping("/api/jobs/tn")
     public List<JobNotification> getTamilNaduJobs() {
         return jobs.findByState("Tamil Nadu");
     }
 
-    /* Public: Fetch active jobs only (unexpired) */
     @GetMapping("/api/jobs/active")
     public List<JobNotification> getActiveJobs() {
         return jobs.findByVerificationStatusAndLastDateGreaterThanEqual("APPROVED", LocalDate.now());
     }
 
-    /* Public: Fetch GNIE Department Registry */
     @GetMapping("/api/departments")
     public List<Department> getDepartments() {
         return departments.findAll();
     }
 
-    /* Public: Fetch GNIE Source Registry */
     @GetMapping("/api/sources")
     public List<SourceRegistryEntity> getSources() {
         return sources.findAll();
@@ -75,7 +75,11 @@ public class AdminController {
 
     /* Admin: View pending verification queue */
     @GetMapping("/api/admin/jobs/pending")
-    public ResponseEntity<?> getPendingJobs(@RequestHeader("X-Admin-Email") String adminEmail) {
+    public ResponseEntity<?> getPendingJobs(
+            @RequestHeader(value = "X-Admin-Email", required = false) String headerEmail,
+            @RequestParam(value = "email", required = false) String paramEmail
+    ) {
+        String adminEmail = headerEmail != null ? headerEmail : paramEmail;
         if (!isAdmin(adminEmail)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("message", "Admin access required."));
@@ -83,20 +87,18 @@ public class AdminController {
         return ResponseEntity.ok(jobs.findByVerificationStatus("PENDING"));
     }
 
-    /* Admin / System Scraper: Add or queue a job notification with strict validation */
+    /* Admin: Add or queue a job notification */
     @PostMapping("/api/admin/jobs")
     public ResponseEntity<?> addJob(
             @RequestHeader(value = "X-Admin-Email", required = false) String adminEmail,
             @RequestBody JobNotification job
     ) {
-        // Domain verification check
         String sourceUrl = job.getSourceUrl() != null ? job.getSourceUrl() : job.getOfficialApplyUrl();
         if (!isOfficialDomain(sourceUrl) && !isOfficialDomain(job.getOfficialApplyUrl()) && !isOfficialDomain(job.getOfficialPdfUrl())) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(Map.of("message", "REJECTED: Source URL must belong to official .tn.gov.in, .gov.in, or .nic.in government domain. Third-party domains are prohibited."));
+                    .body(Map.of("message", "REJECTED: Source URL must belong to official .tn.gov.in, .gov.in, or .nic.in government domain."));
         }
 
-        // Deduplication check by Reference ID or Source URL
         if (job.getNotificationReferenceId() != null && !job.getNotificationReferenceId().isBlank()) {
             if (jobs.existsByNotificationReferenceId(job.getNotificationReferenceId().trim())) {
                 return ResponseEntity.status(HttpStatus.CONFLICT)
@@ -110,7 +112,6 @@ public class AdminController {
             }
         }
 
-        // Auto compute status
         LocalDate today = LocalDate.now();
         if (job.getLastDate() != null && job.getLastDate().isBefore(today)) {
             job.setStatus("Closed");
@@ -121,15 +122,8 @@ public class AdminController {
         }
 
         job.setFetchTimestamp(LocalDateTime.now());
-
-        // Auto approve if added directly by verified admin, otherwise set to PENDING for review
-        if (adminEmail != null && isAdmin(adminEmail)) {
-            job.setVerificationStatus("APPROVED");
-            job.setIsVerifiedOfficial(true);
-        } else {
-            job.setVerificationStatus("APPROVED"); // Default auto-approved for scraper from official whitelist
-            job.setIsVerifiedOfficial(true);
-        }
+        job.setVerificationStatus("APPROVED");
+        job.setIsVerifiedOfficial(true);
 
         JobNotification savedJob = jobs.save(job);
 
@@ -141,7 +135,6 @@ public class AdminController {
                 ));
     }
 
-    /* Admin: Approve a job notification */
     @PutMapping("/api/admin/jobs/{id}/approve")
     public ResponseEntity<?> approveJob(
             @RequestHeader("X-Admin-Email") String adminEmail,
@@ -151,16 +144,14 @@ public class AdminController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("message", "Admin access required."));
         }
-
         return jobs.findById(id).map(job -> {
             job.setVerificationStatus("APPROVED");
             job.setIsVerifiedOfficial(true);
             jobs.save(job);
-            return ResponseEntity.ok(Map.of("message", "Job notification verified and approved successfully."));
+            return ResponseEntity.ok(Map.of("message", "Job notification approved successfully."));
         }).orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", "Job not found.")));
     }
 
-    /* Admin: Reject a job notification */
     @PutMapping("/api/admin/jobs/{id}/reject")
     public ResponseEntity<?> rejectJob(
             @RequestHeader("X-Admin-Email") String adminEmail,
@@ -170,7 +161,6 @@ public class AdminController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("message", "Admin access required."));
         }
-
         return jobs.findById(id).map(job -> {
             job.setVerificationStatus("REJECTED");
             jobs.save(job);
@@ -178,7 +168,6 @@ public class AdminController {
         }).orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", "Job not found.")));
     }
 
-    /* Admin: Update a job notification */
     @PutMapping("/api/admin/jobs/{id}")
     public ResponseEntity<?> updateJob(
             @RequestHeader("X-Admin-Email") String adminEmail,
@@ -223,7 +212,6 @@ public class AdminController {
                         .body(Map.of("message", "Job notification not found.")));
     }
 
-    /* Admin: Delete a job notification */
     @DeleteMapping("/api/admin/jobs/{id}")
     public ResponseEntity<?> deleteJob(
             @RequestHeader("X-Admin-Email") String adminEmail,
@@ -233,29 +221,43 @@ public class AdminController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("message", "Admin access required."));
         }
-
         if (!jobs.existsById(id)) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("message", "Job notification not found."));
         }
-
         jobs.deleteById(id);
-
         return ResponseEntity.ok(
                 Map.of("message", "Job notification deleted successfully.")
         );
     }
 
-    /* Admin: View registered users */
+    /* Admin: View registered users (accepts header OR query param) */
     @GetMapping("/api/admin/users")
     public ResponseEntity<?> getUsers(
-            @RequestHeader("X-Admin-Email") String adminEmail
+            @RequestHeader(value = "X-Admin-Email", required = false) String headerEmail,
+            @RequestParam(value = "email", required = false) String paramEmail
     ) {
+        String adminEmail = headerEmail != null ? headerEmail : paramEmail;
+
         if (!isAdmin(adminEmail)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("message", "Admin access required."));
         }
 
-        return ResponseEntity.ok(users.findAll());
+        List<AppUser> allUsers = users.findAll();
+        List<Map<String, Object>> userList = allUsers.stream().map(u -> {
+            Map<String, Object> map = new HashMap<>();
+            map.put("id", u.getId());
+            map.put("fullName", u.getFullName());
+            map.put("email", u.getEmail());
+            map.put("phone", u.getPhone());
+            map.put("state", u.getState());
+            map.put("district", u.getDistrict());
+            map.put("role", u.getRole() != null ? u.getRole() : "USER");
+            map.put("createdAt", u.getCreatedAt());
+            return map;
+        }).collect(Collectors.toList());
+
+        return ResponseEntity.ok(userList);
     }
 }
