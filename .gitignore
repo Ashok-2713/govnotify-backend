@@ -36,3 +36,4 @@ build/
 .env.production
 .env.development
 *.log
+.env.backup
