@@ -25,20 +25,37 @@ public class AppliedJob {
 
     private LocalDateTime appliedAt;
 
+    @Column(length = 30)
+    private String status = "APPLIED";
+
+    private Long jobId;
+
     public AppliedJob() {}
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+
     public String getUserEmail() { return userEmail; }
     public void setUserEmail(String userEmail) { this.userEmail = userEmail; }
+
     public String getJobTitle() { return jobTitle; }
     public void setJobTitle(String jobTitle) { this.jobTitle = jobTitle; }
+
     public String getOrganization() { return organization; }
     public void setOrganization(String organization) { this.organization = organization; }
+
     public String getLastDate() { return lastDate; }
     public void setLastDate(String lastDate) { this.lastDate = lastDate; }
+
     public String getOfficialApplyUrl() { return officialApplyUrl; }
     public void setOfficialApplyUrl(String officialApplyUrl) { this.officialApplyUrl = officialApplyUrl; }
+
     public LocalDateTime getAppliedAt() { return appliedAt; }
     public void setAppliedAt(LocalDateTime appliedAt) { this.appliedAt = appliedAt; }
+
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+
+    public Long getJobId() { return jobId; }
+    public void setJobId(Long jobId) { this.jobId = jobId; }
 }
