@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:3000", "https://govnotify-frontend.vercel.app", "*"})
 @RestController
 @RequestMapping("/api/reviews")
 public class JobReviewController {
