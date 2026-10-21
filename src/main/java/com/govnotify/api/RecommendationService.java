@@ -37,7 +37,7 @@ public class RecommendationService {
 
     /**
      * Finds jobs tailored to the user's state or qualification, excluding already-saved jobs.
-     * If no profile exists, returns the 6 most recently created active jobs.
+     * If no profile exists, returns the top 10 most recently created active jobs.
      */
     public List<JobNotification> getRecommendedJobs(String userEmail) {
         // 1. Fetch user profile if email provided
@@ -68,9 +68,9 @@ public class RecommendationService {
                 })
                 .collect(Collectors.toList());
 
-        // 4. If no profile exists or profile has neither state nor qualification, return top 6 active
+        // 4. If no profile exists or profile has neither state nor qualification, return top 10 active
         if (profileOpt.isEmpty()) {
-            return activeJobs.stream().limit(6).collect(Collectors.toList());
+            return activeJobs.stream().limit(10).collect(Collectors.toList());
         }
 
         UserProfile profile = profileOpt.get();
@@ -78,7 +78,7 @@ public class RecommendationService {
         String userQual = profile.getQualification() != null ? profile.getQualification().trim().toLowerCase() : "";
 
         if (userState.isEmpty() && userQual.isEmpty()) {
-            return activeJobs.stream().limit(6).collect(Collectors.toList());
+            return activeJobs.stream().limit(10).collect(Collectors.toList());
         }
 
         // 5. Filter matching user's state OR qualification
@@ -101,16 +101,16 @@ public class RecommendationService {
             }
         }
 
-        // Top 6 matching jobs; if fewer than 6, fill with other recent active jobs
+        // Top 10 matching jobs; if fewer than 10, fill with other recent active jobs
         List<JobNotification> result = new ArrayList<>(matchedJobs);
-        if (result.size() < 6) {
+        if (result.size() < 10) {
             for (JobNotification other : otherJobs) {
-                if (result.size() >= 6) break;
+                if (result.size() >= 10) break;
                 result.add(other);
             }
         }
 
-        return result.stream().limit(6).collect(Collectors.toList());
+        return result.stream().limit(10).collect(Collectors.toList());
     }
 
     /**
